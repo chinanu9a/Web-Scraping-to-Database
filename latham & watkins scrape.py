@@ -45,25 +45,31 @@ from selenium.webdriver.support.select import Select
 #######################################################################################################################
 
 def main():
+    ## opens chrome in background
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--window-size=1920x1080")
 
+    ## opens website
     driver = webdriver.Chrome(chrome_options=chrome_options)
     driver.get("https://www.lw.com/GlobalDirectory")
     print(driver.title)
 
+    ## gets list of lawyers links
     lawyers = getLawyers(driver)
     print()
     print('Latham & Watkins has '+ str(len(lawyers)) + ' lawyers under their books.')
     print()
 
+    ## gets lawyers and their information in a list of dictionaries
     lawyers_dict = get_lawyers_info(driver, lawyers)
     #print(lawyers_dict)
     #pprint.pprint(lawyers_dict)
 
+    ## converts dictionary to json file
     convert_to_json(lawyers_dict)
 
+    ## creates sql file and code to generate database
     create_sql(lawyers_dict)
 
     print('Check for JSON and SQL files in folder.')
@@ -76,34 +82,49 @@ def main():
 
 
 #######################################################################################################################
+
+## function scrapes website to return a list of links for each lawyer in directory.
+## Input: selenium driver on Latham & Watkins global directory webpage
+## Output: list of lawyers links
 def getLawyers(driver):
+    ## wait time for browser
     wait = WebDriverWait(driver, 5)
+
+    ## using only Q for testing purposes
     #alphabets = list(string.ascii_uppercase)
     alphabets = ['Q']
+
     lawyers = []
     for letter in alphabets:
         #print(letter)
         try:
+            ## waits and checks if page is properly open by checking if a specific link is clickable and then click it
             elem = wait.until(EC.element_to_be_clickable(
                 (By.LINK_TEXT, letter)))
             elem.click()
 
-
+            ## waits and checks if list view of lawyers is present and proceed to click list view button
             list_view = wait.until(EC.presence_of_element_located(
                 (By.ID, "ContentPlaceHolder1_MainContentPlaceHolder_ListTab")))
             list_view.click()
 
-
+            ## waits until list of lawyers is element is present
             table_view = wait.until(EC.presence_of_element_located((By.ID, 'PeopleList')))
             try:
+                ## finds link element, a, that contains text 'All' by xpath and clicks it to display all laywers
+                ## whose last name starts with letter. If list is short and element not present, the process is skipped
                 view_all = driver.find_element_by_xpath("//div/span/a[contains(text(),'All')]")
                 view_all.click()
             except NoSuchElementException:
                 pass
 
+            ## creates empty list to hold lawyer basic info
             select_lawyer = []
+
+            ## parses page
             soup = BeautifulSoup(driver.page_source, "html.parser")
 
+            ## finds table holding list/records of lawyers and appends lawyer basic info to select_laywer list
             table = soup.findChild('table', {'id': 'PeopleList'})
             if table is not None:
                 rows = table.findChildren('tr')
@@ -112,38 +133,57 @@ def getLawyers(driver):
                     for link in links:
                         if link:
                             select_lawyer.append(link['href'])
+            #print(select_lawyer)
 
+            ## each lawyer link has 'people' string in it, therefore only srings that match the criteria are added to
+            ## lawyers list. Links would be used to select each lawyer individually later on
             for i in select_lawyer:
                 if 'people' in i:
                     lawyers.append(i)
 
             #print(lawyers)
 
+        # prints error if elements are not present
         except TimeoutException as err:
             print("Click Failed")
             print(str(err))
             return
 
-    driver.get_screenshot_as_file("capture.png")
+    ## to check if right page was opened
+    #driver.get_screenshot_as_file("capture.png")
+
+    ## returns list of lawyers links
     return lawyers
 #######################################################################################################################
 
 
 #######################################################################################################################
+
+## function returns a list of dictionaries containing detailed information of each lawyer.
+## Input: selenium driver on webpage of last lastname letter in aplhabets list for the
+## Latham & Watkins global directory webpage. And list of links for each lawyer
+## Output: Lawyers and their detailed information in a list of dictionaries
 def get_lawyers_info(driver, lawyers):
+    ## placeholder for domain name of website
     domain = 'https://www.lw.com'
     wait = WebDriverWait(driver, 5)
+
+    ## list to hold dictionaries of each lawyer
     lawyers_dict = []
 
 
     for lawyer in lawyers:
+        ## lawyer link to be requested
         lawyer = domain + lawyer
         driver.get(lawyer)
 
         try:
+            ## waits until RightColumnMainContent element is available, where basic information of the lawyer exists
             elem = wait.until(EC.presence_of_element_located(
                 (By.ID,"RightColumnMainContent")))
 
+            ## parses page and scrapes data from the page if available. some data will be defaulted as None(NULL),
+            ## some will be permenantly set as None as website doesn't have that information.
             soup = BeautifulSoup(driver.page_source, "html.parser")
             content = soup.findChild('div', {'id': 'RightColumnMainContent'})
 
@@ -181,7 +221,8 @@ def get_lawyers_info(driver, lawyers):
                 cv = None
 
 
-
+                ## scrapes different section of webpage for educational background of lawyer and joins them with
+                ## a semicolon
                 edu = []
                 lawyer_meta = soup.findChild('ul', {'id': 'AttorneyMetaData'})
                 edu_ul = lawyer_meta.select('div')[1].find_next_siblings('ul')[0]
@@ -192,7 +233,7 @@ def get_lawyers_info(driver, lawyers):
                 edu = "; ".join(edu)
 
 
-
+                ## Scrapes biography and experience information on lawyer and ensures proper character encoding.
                 bio = None
                 try:
                     bio_area = soup.findChild('div', {'id': 'ExpertiseContentArea'})
@@ -226,6 +267,7 @@ def get_lawyers_info(driver, lawyers):
 
 
 
+                ## Scrapes and merges Pracrices & Industries list from lawyer_meta (AttorneyMetaData list element)
                 xpts = None
                 try:
                     pracs_ul = lawyer_meta.select('div')[2].find_next_siblings('ul')[0]
@@ -254,7 +296,7 @@ def get_lawyers_info(driver, lawyers):
 
 
 
-
+                ## Scrapes and gets bar qualifications for each lawyer if listed
                 barQ = []
                 try:
                     bar_ul = lawyer_meta.select('div')[0].find_next_siblings('ul')[0]
@@ -274,6 +316,7 @@ def get_lawyers_info(driver, lawyers):
 
 
 
+                ## Scrape News and Events sections if available and joins them with a semicolon
                 newsEvents = None
                 try:
                     find_events = driver.find_element_by_link_text("Events")
@@ -320,6 +363,7 @@ def get_lawyers_info(driver, lawyers):
 
 
 
+                ## Scrapes "Thought Leadership" section for publications of lawyer
                 publications = None
                 try:
                     find_publications = driver.find_element_by_link_text("Thought Leadership")
@@ -346,7 +390,7 @@ def get_lawyers_info(driver, lawyers):
                 clients = None
 
 
-
+                ## Scrapes "Awards & Rankings" section if availables
                 awards_rankings = None
                 try:
                     find_AR = driver.find_element_by_link_text("Awards & Rankings")
@@ -372,7 +416,7 @@ def get_lawyers_info(driver, lawyers):
                 priorAssc = None
 
 
-
+                ## Scrapes page for picture of lawyer and creates link to view image if available
                 lawyer_pic = None
                 try:
                     find_pic = driver.find_element_by_class_name("bioPhoto")
@@ -386,11 +430,12 @@ def get_lawyers_info(driver, lawyers):
                     pass
 
 
-
+                ## Get time in YYYY-Mon-DD format
                 now = datetime.datetime.today()
                 now = now.strftime("%Y-%b-%d")
 
 
+                ## Creates dictionary with each lawyer info and appends it to lawyer_dict list
                 lawyers_dict.append({
                     'Name': name,
                     'Title': title,
@@ -416,32 +461,43 @@ def get_lawyers_info(driver, lawyers):
                     'Timestamp': now,
                     })
 
-
+        ## displays error if timeout occurs from driver waits
         except TimeoutException as err:
             print(str(err))
             return
 
+    ## returns list of dictionaries containing lawyer information
     return lawyers_dict
 #######################################################################################################################
 
 
 #######################################################################################################################
+
+## creates json file from lawyers_dict list of dictionaries.
+## Input: lawyers_dict list of dictionaries.
 def convert_to_json(lawyers_dict):
     with open('LW_Lawyers.json', 'w') as outfile:
+        ## indent = 4 ensure a prettier view of json file
         json.dump(lawyers_dict, outfile, indent= 4)
 #######################################################################################################################
 
 
 #######################################################################################################################
+
+## creates sql code using lawyers_dict list of dictionaries.
+## Input: lawyers_dict list of dictionaries.
 def create_sql(lawyers_dict):
     table_name = 'L_W_Directory'
 
+    ## creates Column names from keys in lawyers_dict list of dictionaries.
     columns = []
     for row in lawyers_dict:
         for key in row.keys():
             if key not in columns:
                 columns.append(key)
     ##print(columns)
+
+    ## SQL create table string created dynamically using table_name and column names
     create_table = ("""CREATE TABLE {} (
   {}
 );
@@ -449,6 +505,9 @@ def create_sql(lawyers_dict):
 """.format(table_name, (",\n  ".join(map(lambda x: "{} VARCHAR(2000)".format(x), columns))))
         )
 
+    ## Creates SQL insert statements dynamically from each dictornary in lawyers_dict list.
+    ## Replaces single quote/apostrophe with two single quotes/apostrophe to prevent unwated escapes.
+    ## 'NULL' renders as NULL in SQL,
     ins_statements = ''
     for row in lawyers_dict:
         ins_statements += ("""\nINSERT INTO {} VALUES({});""".format(table_name,
